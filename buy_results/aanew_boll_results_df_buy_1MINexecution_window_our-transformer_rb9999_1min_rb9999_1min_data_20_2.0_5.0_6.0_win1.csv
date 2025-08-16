@@ -1,0 +1,2 @@
+timestamp,logic_used,predicted_price,execution_price,actual_volume,order_quantity,trade_value,remaining_quantity,cumulative_benchmark_value,cumulative_actual_volume,traditional_vwap_line,cumulative_model_value,cumulative_model_volume,model_vwap_line
+2025-06-06 09:54:00+08:00,收盘冲刺 (r=0.75),,2987.0,6038.0,10000.0,29870000.0,0.0,18035506.0,6038.0,2987.0,29870000.0,10000.0,2987.0
