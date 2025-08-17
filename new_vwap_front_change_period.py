@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import torch
 import os  # 引入os模块
-from new_utils import generate_bollinger_signals
+from new_utils import generate_bollinger_signals, generate_bollinger_signals_with_strength
 import argparse
 
 from dataloader_setup import FinancialDataset
@@ -177,10 +177,18 @@ def run_adaptive_backtest(
         execution_price = (current_minute_raw_data['high'] + current_minute_raw_data['low'] + current_minute_raw_data[
             'close']) / 3.0
 
+        # ；添加执行窗口开始和结束标志
+        time_mark = ""
+        if t == 0:  # t为0，代表循环开始，即执行窗口的开始
+            time_mark = "start"
+        elif t == execution_window - 1:  # t为execution_window-1，代表循环结束，即执行窗口的结束
+            time_mark = "end"
+
         remaining_quantity -= final_order_quantity
 
         results_log.append({
             'timestamp': current_minute_raw_data['date'],
+            'execution': time_mark,
             'logic_used': logic_used,
             'predicted_price': predicted_close_for_this_minute,
             'execution_price': execution_price,
@@ -307,6 +315,51 @@ if __name__ == "__main__":
                         print(f"[{selected_interval_label}] 1. 加载并重采样数据...")
                         raw_df_1min = pd.read_csv(data_file, parse_dates=['date'])
                         resampled_df = resample_data(raw_df_1min.copy(), time_interval)
+# --------------------------------------------------------------------------------------------------
+                        # --- 【新功能】: 基于阈值筛选信号并保存到 CSV ---
+                        # 定义信号保存的文件夹
+                        signals_dir = "bollinger_signals"
+                        os.makedirs(signals_dir, exist_ok=True)
+
+                        # 使用新的函数生成信号和信号强度
+                        # 注意：这里需要确保 generate_bollinger_signals_with_strength 函数是可用的
+                        bollinger_params = {"length": length_param, "std": std_param, "stl_param": stl_param,
+                                            "n_param": n_param}
+                        # 使用 resampled_df 作为输入，并确保它有时间索引
+                        signals_df = resampled_df.copy()
+                        bollinger_signal_df = generate_bollinger_signals_with_strength(signals_df, **bollinger_params)
+
+                        # 遍历所有允许的执行窗口，并将它们包含在文件名和信号中
+                        # 注意：这段代码应该在主 for 循环内部，或者将其重构到主循环外部
+                        # 如下所示，它应该嵌套在 symbol 和 time_interval 的循环中
+                        # 并且要使用 resampled_df，而不是每次都重新加载
+                        allowed_windows = interval_to_windows.get(time_interval, [1])
+                        for execution_window in allowed_windows:
+                            # 基于阈值和信号类型筛选数据
+                            # 这一步是核心，只保留 'Buy' 或 'Sell' 且强度超过阈值的信号
+                            signal_threshold = 0.6
+                            filtered_signals_df = bollinger_signal_df[
+                                (bollinger_signal_df['signal'].isin(['Buy', 'Sell'])) &
+                                (bollinger_signal_df['signal_strength'] > signal_threshold)
+                                ].copy()  # 使用 .copy() 避免 SettingWithCopyWarning
+
+                            # 格式化输出 DataFrame
+                            if not filtered_signals_df.empty:
+                                # 'date' 列已经存在于原始数据框中，直接使用它作为时间戳
+
+                                # 构造文件名
+                                signal_filename = f"bollinger_signals_{time_interval}_{symbol}_win{execution_window}.csv"
+                                signal_filepath = os.path.join(signals_dir, signal_filename)
+
+                                # 保存 CSV 文件，只包含 'date' 列（时间戳）和格式化后的信号字符串
+                                filtered_signals_df[['date', 'signal']].to_csv(signal_filepath, index=False)
+                                print(f"信号已保存到 {signal_filepath}")
+                            else:
+                                print(
+                                    f"警告：在 {time_interval}, {symbol}, window={execution_window} 的回测中，没有生成满足阈值要求的信号。")
+                        # --------------------------------------------------------------------------------------------------
+
+
                         unique_dates = sorted(resampled_df['date'].dt.date.unique(), reverse=True)
                         if not unique_dates:
                             print(f"[{selected_interval_label}] 无可用日期，跳过。")
